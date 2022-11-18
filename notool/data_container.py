@@ -116,7 +116,7 @@ class RdpDecimateSeries:
 
         tail = np.fromiter(tail, dtype=np.dtype((float, 2)))    # TODO dtype определять по коду в array.array
         tail = rdp(tail, epsilon=epsilon)
-        x_tail, y_tail = np.split(tail._T, 2)
+        x_tail, y_tail = np.split(tail.T, 2)
         x, y = x[:head_size], y[:head_size]
         x.extend(x_tail.flat)
         y.extend(y_tail.flat)
