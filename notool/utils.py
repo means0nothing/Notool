@@ -10,6 +10,9 @@ C = t.TypeVar('C')
 def wraps_hint(decorator: C) -> C:
     return decorator
 
+@wraps_hint
+def functools_cache(func):
+    return functools.cache(func)
 
 @wraps_hint
 def start_generator(func):

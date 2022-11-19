@@ -1,25 +1,35 @@
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 from .utils import (
     get_var_name,
     wraps_hint,
-    start_generator
+    start_generator,
+    functools_cache
+)
+from .helpers import (
+    Publisher,
+    publisher
 )
 from .enum_ex import (
     enum_str,
-    ChainMap
+    EnumChain
 )
 from .data_container import (
     RdpDecimateSeries,
 )
 from .dataclass_ex import (
     Serializable,
+    from_dict
 )
 
 __all__ = ['get_var_name',
            'wraps_hint',
            'start_generator',
+           'functools_cache',
            'enum_str',
-           'ChainMap',
+           'EnumChain',
            'RdpDecimateSeries',
-           'Serializable']
+           'Serializable',
+           'from_dict',
+           'Publisher',
+           'publisher']

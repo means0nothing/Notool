@@ -1,10 +1,11 @@
+import datetime
 import functools
 from dataclasses import dataclass
 import typing as t
 from enum import EnumMeta
 
 import orjson
-from dacite import from_dict, core, UnionMatchError
+from dacite import from_dict, core, UnionMatchError, Config
 
 _T = t.TypeVar("_T")
 
@@ -29,10 +30,14 @@ def _transform_value(type_hooks, cast, target_type, value):
                 return {key_type(key): val for key, val in value.items()}
             else:
                 raise NotImplementedError
+        elif target_type in (bytes, bytearray, memoryview) and isinstance(value, str):
+            return str.encode(value, 'charmap')
         elif hasattr(target_type, '_asdict'):  # for namedtuple
             return target_type(**value)
-        elif isinstance(target_type, EnumMeta) or target_type is tuple:
-            return target_type(value)
+        elif target_type in (int, float) or isinstance(target_type, EnumMeta) or target_type is tuple:
+            return target_type(value if value is not None else '')
+        elif target_type is datetime.datetime:
+            return datetime.datetime.fromisoformat(value)
     except ValueError:
         raise KeyError
 
@@ -55,21 +60,29 @@ setattr(core, '_build_value', _build_value)
 def _orjson_default(obj):
     if hasattr(obj, '_asdict'):
         return obj._asdict()
+    elif isinstance(obj, (bytes, bytearray, memoryview)):
+        return obj.decode('charmap')
+    elif isinstance(obj, Exception):
+        return str(obj)
+    raise TypeError
 
 
 _encoder = functools.partial(orjson.dumps, default=_orjson_default, option=orjson.OPT_NON_STR_KEYS)
 _decoder = orjson.loads
+_dacite_default = Config(check_types=False)
 
 
+# TODO add methods from_dict and asdict or params in loads dumps or autodetect type dict
 class Serializable:
     @classmethod
     def loads(cls: t.Type[_T],
-              obj: t.Union[bytes, bytearray, memoryview, str],
+              data: t.Union[dict, bytes, bytearray, memoryview, str],
               decoder: t.Callable = None) -> _T:
-        return from_dict(cls, decoder or _decoder(obj))
+        dict_ = data if isinstance(data, dict) else (decoder or _decoder)(data)
+        return from_dict(cls, dict_, config=_dacite_default)
 
     def dumps(self, encoder: t.Callable = None) -> t.Union[bytes, bytearray, memoryview, str]:
-        return encoder or _encoder(self)
+        return (encoder or _encoder)(self)
 
 
 if __name__ == '__main__':
@@ -109,6 +122,7 @@ if __name__ == '__main__':
 
         @dataclass
         class TestData(Serializable):
+            field0: bytes = b'default\n'
             field1: Data._T = Data1.data1a
             field2: float = 2.0
             field3: dict = field(default_factory=lambda: {'test_field': 2})
@@ -124,15 +138,11 @@ if __name__ == '__main__':
             tuple_ = EbcParams(i, i, i) if a else (str(i), i)
             list_.append(TestForList(Data1.data1a, (i, i), a, tuple_, dict_))
 
-        for test_data in (TestData(Data2.data2a, 14.2, {'test_field2': 22}),
-                          TestData(Data2.data2a, 14.2, {'test_field2': 22}, list_)):
+        for test_data in (TestData(b'default\n', Data2.data2a, 14.2, {'test_field2': 22}),
+                          TestData(b'default\n', Data2.data2a, 14.2, {'test_field2': 22}, list_)):
             test_data_loads = orjson.loads(orjson.dumps(test_data, default=_orjson_default, option=orjson.OPT_NON_STR_KEYS))
             test_data_dacite = from_dict(TestData, test_data_loads, )  # Config(cast=[Data], check_types=True))
             assert test_data == test_data_dacite
             assert test_data == TestData.loads(test_data.dumps())
-
-        # a = b'\n'.join([orjson.dumps({'asd asd': '\n\t', 'a\na': 5}),
-        #                orjson.dumps(['asd asd', '\n\t', 'a\na', 5])])
-        # print(*a.split(b'\n'))
 
     _tests()

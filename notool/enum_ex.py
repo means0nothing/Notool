@@ -19,9 +19,11 @@ def _get_enum_base(cls):
             return base
 
 
+# TODO implement specifying str2member_map or repr2member_map, when str and loaded values is not the same
 def enum_str(cls: _T = None, *,
-             str_map: t.Optional[dict] = None,
-             get_member_by_str=False) -> _T:
+             member2str_map: t.Optional[dict] = None,
+             make_inverse_map=False,
+             default_value=None) -> _T:
 
     def _enum_str(_cls):
         def __str__(self):
@@ -29,22 +31,32 @@ def enum_str(cls: _T = None, *,
                    super_str(self)
 
         def __new__(_cls, value, *args, **kw):
-            return isinstance(value, str) and\
-                   getattr(_cls, '_str2member_map_', lambda: {}).get(value) or\
-                   super_call(_cls, value, *args, **kw)
+            if isinstance(value, str):
+                if (member := getattr(_cls, '_str2member_map_', lambda: {}).get(value)) is not None:
+                    return member
+            try:
+                if not isinstance(value, member_type):
+                    value = member_type(value)
+                return super_call(_cls, value, *args, **kw)
+            except ValueError:
+                if default_value is not None:
+                    return super_call(_cls, default_value, *args, **kw)
+                else:
+                    raise
 
-        _str_map = str_map or getattr(_cls, '_str_map', lambda: None)()
-        if _str_map:
+        member2str = member2str_map or getattr(_cls, '_member2str_map', lambda: None)()
+        member_type = _cls._member_type_ if not object else int
+        if member2str:
             super_str = getattr(_cls, '__str__')
             setattr(_cls, '__str__', __str__)
-            setattr(_cls, '_member2str_map_', _str_map)
-            if get_member_by_str:
+            setattr(_cls, '_member2str_map_', member2str)
+            if make_inverse_map:
                 super_call = getattr(_cls, '__new__')
                 setattr(_cls, '__new__', __new__)
-                str2member_map = {val: key for key, val in _str_map.items()}
-                if len(str2member_map) != len(_str_map):
+                str2member = {val: key for key, val in member2str.items()}
+                if len(str2member) != len(member2str):
                     raise ValueError('Values in str_map must be unique')
-                setattr(_cls, '_str2member_map_', str2member_map)
+                setattr(_cls, '_str2member_map_', str2member)
         return _cls
 
     return _enum_str if cls is None else _enum_str(cls)
@@ -176,14 +188,14 @@ if __name__ == '__main__':
             data1a = value
             data1b = auto()
 
-        @enum_str(get_member_by_str=True)
+        @enum_str(make_inverse_map=True)
         class Data2(Enum):
             data2a = 16
             data2b = auto()
             data2c = auto()
 
             @classmethod
-            def _str_map(cls):
+            def _member2str_map(cls):
                 return {cls.data2a: str_value, cls.data2b: '_DATA2B_'}
 
         class Data3(Enum):
@@ -191,7 +203,7 @@ if __name__ == '__main__':
             data3b = 24
             data3c = 255
 
-        enum_str(Data3, str_map={Data3.data3a: '_DATA3A_', }, get_member_by_str=True)
+        enum_str(Data3, member2str_map={Data3.data3a: '_DATA3A_', }, make_inverse_map=True)
 
         class Data(Data1, Data2, Data3, metaclass=EnumChain):
             ...
