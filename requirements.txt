@@ -1,5 +1,5 @@
 numpy>=1.23.1
-rdp>=0.8
-dacite>=1.6.0
-orjson>=3.8.0
+rdp==0.8
+dacite==1.6.0
+orjson==3.8.1
 matplotlib>=3.5.0       # test

@@ -81,8 +81,12 @@ class Serializable:
         dict_ = data if isinstance(data, dict) else (decoder or _decoder)(data)
         return from_dict(cls, dict_, config=_dacite_default)
 
-    def dumps(self, encoder: t.Callable = None) -> t.Union[bytes, bytearray, memoryview, str]:
-        return (encoder or _encoder)(self)
+    def dumps(self, encoder: t.Callable = None, indent=False) -> t.Union[bytes, bytearray, memoryview, str]:
+        if encoder:
+            return encoder(self)
+        else:
+            return orjson.dumps(self, default=_orjson_default,
+                                option=orjson.OPT_NON_STR_KEYS | int(indent and orjson.OPT_INDENT_2))
 
 
 if __name__ == '__main__':
