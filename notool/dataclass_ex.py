@@ -1,58 +1,47 @@
 import datetime
 import functools
+import time
 from dataclasses import dataclass
 import typing as t
 from enum import EnumMeta
 
 import orjson
-from dacite import from_dict, core, UnionMatchError, Config
+from dacite import from_dict, core, Config
+from dacite.exceptions import DaciteFieldError
 
 _T = t.TypeVar("_T")
 
 
-def _transform_value(type_hooks, cast, target_type, value):
-    args = t.get_args(target_type)
-    target_type = t.get_origin(target_type) or target_type
-    try:
-        if target_type is dict and args and (key_type := args[0]):
-            # key_type_args = t.get_args(key_type)
-            # key_type = t.get_origin(key_type) or key_type
-            if key_type is str:
-                pass
-            # TODO orjson not supported tuple as dict keys
-            # elif key_type is tuple and key_type_args:
-            #     if len(key_type_args) > 1 or \
-            #             (key_type_args := key_type_args[0]) not in (int, float, str):
-            #         raise NotImplementedError
-            #     return {tuple(map(key_type_args, key[1:-1].split(','))): val
-            #             for key, val in value.items()}
-            elif key_type in (int, float):
-                return {key_type(key): val for key, val in value.items()}
-            else:
-                raise NotImplementedError
-        elif target_type in (bytes, bytearray, memoryview) and isinstance(value, str):
-            return str.encode(value, 'charmap')
-        elif hasattr(target_type, '_asdict'):  # for namedtuple
-            return target_type(**value)
-        elif target_type in (int, float) or isinstance(target_type, EnumMeta) or target_type is tuple:
-            return target_type(value if value is not None else '')
-        elif target_type is datetime.datetime:
-            return datetime.datetime.fromisoformat(value)
-    except ValueError:
-        raise KeyError
-
-    return super_transform_value(type_hooks, cast, target_type, value)
-
-
 def _build_value(type_, data, config):
+    origin_type = t.get_origin(type_) or type_
     try:
+        if origin_type is dict:
+            args = t.get_args(type_)
+            if args and (key_type := args[0]):
+                if key_type is str:
+                    pass
+                elif key_type in (int, float):
+                    data = {key_type(key): val for key, val in data.items()}
+                else:
+                    # TODO orjson not supported tuple as dict keys
+                    raise NotImplementedError
+        elif origin_type is type(data):
+            ...
+        elif origin_type in (bytes, bytearray, memoryview) and isinstance(data, str):
+            data = str.encode(data, 'charmap')
+        elif hasattr(origin_type, '_asdict'):  # for namedtuple
+            data = origin_type(**data)
+        elif origin_type in (int, float) or isinstance(origin_type, EnumMeta) or origin_type is tuple:
+            data = origin_type(data if data is not None else '')
+        elif origin_type is datetime.datetime:
+            data = datetime.datetime.fromisoformat(data)
+
         return super_build_value(type_, data, config)
-    except UnionMatchError:
-        raise KeyError
+
+    except ValueError:
+        raise DaciteFieldError
 
 
-super_transform_value = getattr(core, 'transform_value')
-setattr(core, 'transform_value', _transform_value)
 super_build_value = getattr(core, '_build_value')
 setattr(core, '_build_value', _build_value)
 
@@ -131,6 +120,7 @@ if __name__ == '__main__':
             field2: float = 2.0
             field3: dict = field(default_factory=lambda: {'test_field': 2})
             field4: list[TestForList] = field(default_factory=list)
+            field5: t.Optional[datetime.datetime] = None
 
         list_ = []
         for i in range(10):
@@ -143,10 +133,17 @@ if __name__ == '__main__':
             list_.append(TestForList(Data1.data1a, (i, i), a, tuple_, dict_))
 
         for test_data in (TestData(b'default\n', Data2.data2a, 14.2, {'test_field2': 22}),
-                          TestData(b'default\n', Data2.data2a, 14.2, {'test_field2': 22}, list_)):
-            test_data_loads = orjson.loads(orjson.dumps(test_data, default=_orjson_default, option=orjson.OPT_NON_STR_KEYS))
-            test_data_dacite = from_dict(TestData, test_data_loads, )  # Config(cast=[Data], check_types=True))
-            assert test_data == test_data_dacite
-            assert test_data == TestData.loads(test_data.dumps())
+                          TestData(b'default\n', Data2.data2a, 14.2, {'test_field2': 22},
+                                   list_, datetime.datetime.now())):
+            test_data_loads = orjson.loads(
+                orjson.dumps(test_data, default=_orjson_default, option=orjson.OPT_NON_STR_KEYS))
+            assert (test_data
+                    == from_dict(TestData, test_data_loads)
+                    == TestData.loads(test_data.dumps()))
+        else:
+            start = time.monotonic()
+            for _ in range(1000):
+                TestData.loads(test_data_loads)
+            print(time.monotonic() - start)
 
     _tests()
